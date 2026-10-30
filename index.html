@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shiquan Fused LiDAR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed 3D canvas; a quiet instrument panel top-left, a transport bar along the bottom. Single dark theme by choice (point clouds read best on dark). */
+:root{
+  --ink:#0d1117; --panel:rgba(16,21,28,.86); --line:#26303b; --text:#e6edf3; --muted:#8b98a7;
+  --l0:#ff9d4d; --l1:#3fc5f0; --accent:#c6f36b;
+  --display:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%;}
+[hidden]{display:none!important;}
+body{margin:0;min-width:900px;background:var(--ink);color:var(--text);font-family:var(--display);overflow:hidden;}
+#stage{position:fixed;inset:0;}
+#stage canvas{display:block;width:100%;height:100%;touch-action:none;}
+.panel{position:fixed;top:16px;left:16px;
+  width:330px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:14px 14px 12px;backdrop-filter:blur(6px);display:flex;flex-direction:column;gap:12px;z-index:2;max-height:calc(100% - 120px);overflow:auto;}
+h1{margin:0;font-size:17px;font-weight:700;letter-spacing:.01em;text-wrap:balance;}
+.sub{margin:2px 0 0;color:var(--muted);font-size:12px;line-height:1.4;}
+.label{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+.chips{display:flex;flex-wrap:wrap;gap:6px;}
+.chip{font:500 12.5px var(--display);color:var(--text);background:transparent;border:1px solid var(--line);border-radius:999px;padding:5px 10px;cursor:pointer;}
+.chip[aria-pressed="true"]{border-color:var(--accent);color:var(--ink);background:var(--accent);}
+.chip:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.stats{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font:12px var(--mono);font-variant-numeric:tabular-nums;}
+.stats dt{color:var(--muted);} .stats dd{margin:0;text-align:right;}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);}
+.sw{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:0;}
+.row{display:flex;align-items:center;gap:10px;font-size:12.5px;flex-wrap:wrap;}
+.row label{display:flex;align-items:center;gap:6px;cursor:pointer;}
+select,input[type=range]{accent-color:var(--accent);}
+select{background:var(--ink);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font:12.5px var(--display);}
+.transport{position:fixed;left:16px;right:16px;bottom:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:10px 14px;display:flex;align-items:center;gap:14px;z-index:2;backdrop-filter:blur(6px);}
+.play{width:36px;height:36px;border-radius:50%;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;display:grid;place-items:center;flex:none;}
+.play svg{width:14px;height:14px;fill:currentColor;}
+#scrub{flex:1;min-width:0;}
+.clock{font:12px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap;}
+.clock b{color:var(--text);font-weight:500;}
+.tag{position:absolute;z-index:1;font:600 11px var(--mono);padding:2px 6px;border-radius:4px;pointer-events:none;transform:translate(-50%,-140%);white-space:nowrap;color:var(--ink);}
+.views{display:flex;gap:6px;}
+.views button{font:500 12px var(--display);background:transparent;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 9px;cursor:pointer;}
+#status{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;color:var(--muted);font:13px var(--mono);z-index:1;}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto;}}
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+<div id="status">Loading point clouds…</div>
+<div id="tags"></div>
+
+<section class="panel" id="panel" aria-label="Viewer controls">
+  <div>
+    <h1>Shiquan Street · fused roadside LiDAR</h1>
+    <p class="sub">Two RoboSense EM4 per intersection, 2026-10-26. LiDAR_1 mapped into LiDAR_0's ground-leveled frame; frames paired with the estimated recorder clock offset.</p>
+  </div>
+  <div>
+    <div class="label">Intersection</div>
+    <div class="chips" id="sites" role="group" aria-label="Intersection"></div>
+  </div>
+  <div class="more">
+    <div class="label">Registration</div>
+    <dl class="stats" id="stats"></dl>
+  </div>
+  <div class="more">
+    <div class="label">Display</div>
+    <div class="row">
+      <label for="color">Color</label>
+      <select id="color">
+        <option value="sensor">By sensor</option>
+        <option value="height">By height</option>
+      </select>
+      <label><input type="checkbox" id="bg" checked> Background</label>
+      <label><input type="checkbox" id="fov" checked> FOV</label>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label for="trail">Trails</label><input type="range" id="trail" min="0" max="30" value="8" style="flex:1;min-width:90px">
+      <span class="clock" id="trailv">0.8 s</span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label for="size">Point size</label><input type="range" id="size" min="1" max="10" value="4" style="flex:1;min-width:90px">
+    </div>
+  </div>
+  <div class="legend more">
+    <span><i class="sw" style="background:var(--l0)"></i>LiDAR_0 moving</span>
+    <span><i class="sw" style="background:var(--l1)"></i>LiDAR_1 moving</span>
+    <span><i class="sw" style="background:#5d6b7c"></i>static background</span>
+  </div>
+  <div class="views more">
+    <button id="vTop">Top view</button><button id="vObl">Oblique</button><button id="vL0">From LiDAR_0</button>
+  </div>
+</section>
+
+<div class="transport">
+  <button class="play" id="play" aria-label="Pause"><svg viewBox="0 0 14 14" id="playIcon"><rect x="2" y="1" width="3.5" height="12"/><rect x="8.5" y="1" width="3.5" height="12"/></svg></button>
+  <input type="range" id="scrub" min="0" max="299" value="0" aria-label="Frame">
+  <select id="speed" aria-label="Playback speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
+  <span class="clock"><b id="tnow">0.0 s</b><span> / <span id="tend">29.9</span> s · frame <span id="fnum">1</span></span></span>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"./vendor/three.module.js",
+ "three/addons/":"./vendor/addons/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const stage = $('stage'), status = $('status');
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 2000);
+camera.up.set(0,0,1);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxPolarAngle = Math.PI*0.495;
+
+const C0 = new THREE.Color(0xff9d4d), C1 = new THREE.Color(0x3fc5f0);
+const grid = new THREE.GridHelper(240, 24, 0x2a3440, 0x19212b); grid.rotation.x = Math.PI/2; grid.position.z = -0.02; scene.add(grid);
+
+let meta = null, site = null, data = null, frame = 0, playing = true, acc = 0;
+const cache = {};
+const bgMat = new THREE.PointsMaterial({size:0.16, vertexColors:true, sizeAttenuation:true, transparent:true, opacity:0.85});
+const fgMat = new THREE.PointsMaterial({size:0.3, vertexColors:true, sizeAttenuation:true});
+let bgPts = null, fgPts = null, sensorGroup = new THREE.Group(); scene.add(sensorGroup);
+
+function resize(){ const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w,h,false); camera.aspect = w/h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+function heightColor(z, out){ // slate ground -> pale steel at 12 m
+  const t = Math.min(Math.max((z+0.3)/12,0),1);
+  out.setRGB(0.24+0.5*t, 0.29+0.5*t, 0.35+0.45*t); return out;
+}
+
+async function loadSite(key){
+  if (cache[key]) return cache[key];
+  status.textContent = 'Loading ' + meta[key].label + '…'; status.hidden = false;
+  const buf = await (await fetch('data/' + key + '.bin')).arrayBuffer();
+  const m = meta[key], F = m.frames;
+  const c0 = new Uint32Array(buf, 0, F), c1 = new Uint32Array(buf, 4*F, F);
+  let off = 8*F;
+  const take = n => { const a = new Int16Array(buf, off, n*3); off += n*6; return a; };
+  const bg0 = take(m.nbg0), bg1 = take(m.nbg1), fg0 = take(m.nfg0), fg1 = take(m.nfg1);
+  const s0 = new Uint32Array(F+1), s1 = new Uint32Array(F+1);
+  for (let i=0;i<F;i++){ s0[i+1]=s0[i]+c0[i]; s1[i+1]=s1[i]+c1[i]; }
+  return cache[key] = {bg0,bg1,fg0,fg1,s0,s1,F};
+}
+
+function buildBackground(){
+  if (bgPts){ scene.remove(bgPts); bgPts.geometry.dispose(); }
+  const {bg0,bg1} = data, n0 = bg0.length/3, n1 = bg1.length/3;
+  const pos = new Float32Array((n0+n1)*3), col = new Float32Array((n0+n1)*3);
+  const bySensor = $('color').value === 'sensor', c = new THREE.Color();
+  const put = (src, n, base, tint) => {
+    for (let i=0;i<n;i++){
+      const x=src[3*i]/100, y=src[3*i+1]/100, z=src[3*i+2]/100, k=3*(base+i);
+      pos[k]=x; pos[k+1]=y; pos[k+2]=z;
+      heightColor(z,c); if (bySensor) c.lerp(tint, 0.18);
+      col[k]=c.r; col[k+1]=c.g; col[k+2]=c.b;
+    }
+  };
+  put(bg0,n0,0,C0); put(bg1,n1,n0,C1);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color', new THREE.BufferAttribute(col,3));
+  bgPts = new THREE.Points(g, bgMat); bgPts.visible = $('bg').checked; scene.add(bgPts);
+}
+
+function maxFg(){ const {s0,s1,F}=data; let m=0; for(let i=0;i<F;i++) m=Math.max(m,(s0[i+1]-s0[i])+(s1[i+1]-s1[i])); return m; }
+
+function buildForegroundBuffers(){
+  if (fgPts){ scene.remove(fgPts); fgPts.geometry.dispose(); }
+  const cap = maxFg()*31;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(cap*3),3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cap*3),3).setUsage(THREE.DynamicDrawUsage));
+  fgPts = new THREE.Points(g, fgMat); fgPts.frustumCulled = false; scene.add(fgPts);
+}
+
+const bgCol = new THREE.Color(0x0d1117), tmp = new THREE.Color();
+function drawFrame(f){
+  const {fg0,fg1,s0,s1} = data, trail = +$('trail').value, bySensor = $('color').value === 'sensor';
+  const P = fgPts.geometry.attributes.position.array, Cc = fgPts.geometry.attributes.color.array;
+  let k = 0;
+  for (let back = trail; back >= 0; back--){
+    const fi = f - back; if (fi < 0) continue;
+    const fade = back === 0 ? 1 : 0.15 + 0.55*(1 - back/(trail+1));
+    for (const [src, s, base] of [[fg0,s0,C0],[fg1,s1,C1]]){
+      for (let i=s[fi]; i<s[fi+1]; i++){
+        const z = src[3*i+2]/100;
+        P[3*k]=src[3*i]/100; P[3*k+1]=src[3*i+1]/100; P[3*k+2]=z;
+        if (bySensor) tmp.copy(base); else tmp.setHSL(0.24 - Math.min(z/4,1)*0.2, 0.85, 0.6);
+        tmp.lerp(bgCol, 1 - fade);
+        Cc[3*k]=tmp.r; Cc[3*k+1]=tmp.g; Cc[3*k+2]=tmp.b; k++;
+      }
+    }
+  }
+  fgPts.geometry.setDrawRange(0,k);
+  fgPts.geometry.attributes.position.needsUpdate = true;
+  fgPts.geometry.attributes.color.needsUpdate = true;
+  const m = meta[site];
+  $('scrub').value = f; $('tnow').textContent = m.times[f].toFixed(1) + ' s'; $('fnum').textContent = f+1;
+}
+
+function fan(x,y,z,yaw,color){
+  const g = new THREE.Group(), r = 35, n = 24, pts = [new THREE.Vector3(0,0,0.03)];
+  for (let i=0;i<=n;i++){ const a = (-60 + 120*i/n)*Math.PI/180; pts.push(new THREE.Vector3(r*Math.cos(a), r*Math.sin(a), 0.03)); }
+  const idx = []; for (let i=1;i<=n;i++) idx.push(0,i,i+1);
+  const geo = new THREE.BufferGeometry().setFromPoints(pts); geo.setIndex(idx);
+  const wedge = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color, transparent:true, opacity:0.07, side:THREE.DoubleSide, depthWrite:false}));
+  wedge.name = 'fov'; g.add(wedge);
+  const pole = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,z)]);
+  g.add(new THREE.Line(pole, new THREE.LineBasicMaterial({color})));
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.6,1.6,16), new THREE.MeshBasicMaterial({color}));
+  head.rotation.z = -Math.PI/2; head.position.set(0.8,0,z); g.add(head);
+  const ray = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,z), new THREE.Vector3(8,0,z)]);
+  g.add(new THREE.Line(ray, new THREE.LineBasicMaterial({color, transparent:true, opacity:0.6})));
+  g.position.set(x,y,0); g.rotation.z = yaw*Math.PI/180;
+  return g;
+}
+
+function buildSensors(){
+  sensorGroup.clear();
+  const m = meta[site];
+  sensorGroup.add(fan(0,0,m.h0,0,0xff9d4d));
+  sensorGroup.add(fan(m.l1_pos[0],m.l1_pos[1],m.h1,m.l1_yaw,0x3fc5f0));
+  sensorGroup.traverse(o => { if (o.name==='fov') o.visible = $('fov').checked; });
+  const tags = $('tags'); tags.innerHTML = '';
+  for (const [name, x, y, z, col] of [['LiDAR_0',0,0,m.h0,'var(--l0)'],['LiDAR_1',m.l1_pos[0],m.l1_pos[1],m.h1,'var(--l1)']]){
+    const el = document.createElement('div'); el.className = 'tag'; el.textContent = name; el.style.background = col;
+    el._p = new THREE.Vector3(x,y,z+0.6); tags.appendChild(el);
+  }
+}
+
+function placeTags(){
+  const w = stage.clientWidth, h = stage.clientHeight, v = new THREE.Vector3();
+  for (const el of $('tags').children){
+    v.copy(el._p).project(camera);
+    const vis = v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
+    el.style.display = vis ? 'block' : 'none';
+    el.style.left = ((v.x+1)/2*w) + 'px'; el.style.top = ((1-v.y)/2*h) + 'px';
+  }
+}
+
+function view(kind){
+  const m = meta[site], mx = m.l1_pos[0]/2, my = m.l1_pos[1]/2, span = Math.max(45, m.baseline*1.25);
+  controls.target.set(mx,my,0);
+  if (kind==='top') camera.position.set(mx, my-0.01, span*1.7);
+  else if (kind==='l0') { controls.target.set(mx,my,1); camera.position.set(-4,0,m.h0+5); }
+  else camera.position.set(mx - span*0.75, my - span*0.95, span*0.75);
+  controls.update();
+}
+
+function stats(){
+  const m = meta[site];
+  const rows = [['Baseline', m.baseline.toFixed(1)+' m'],['LiDAR_1 yaw', m.l1_yaw.toFixed(1)+'°'],
+    ['LiDAR_1 at', `(${m.l1_pos[0].toFixed(1)}, ${m.l1_pos[1].toFixed(1)}) m`],['Clock offset Δt', (m.dt>0?'+':'')+m.dt.toFixed(2)+' s'],
+    ['Heights', `${m.h0.toFixed(2)} / ${m.h1.toFixed(2)} m`],['Moving pts / frame', Math.round((m.nfg0+m.nfg1)/m.frames).toLocaleString()]];
+  $('stats').innerHTML = rows.map(([a,b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+}
+
+async function select(key){
+  site = key;
+  for (const b of $('sites').children) b.setAttribute('aria-pressed', b.dataset.k === key);
+  data = await loadSite(key);
+  status.hidden = true;
+  buildBackground(); buildForegroundBuffers(); buildSensors(); stats();
+  $('scrub').max = data.F - 1; $('tend').textContent = meta[key].times[data.F-1].toFixed(1);
+  frame = 0; view('obl'); drawFrame(0);
+  try { localStorage.setItem('sqj-site', key); } catch(e) {}
+}
+
+function setPlaying(p){
+  playing = p; $('play').setAttribute('aria-label', p ? 'Pause' : 'Play');
+  $('playIcon').innerHTML = p ? '<rect x="2" y="1" width="3.5" height="12"/><rect x="8.5" y="1" width="3.5" height="12"/>' : '<path d="M3 1L13 7L3 13z"/>';
+}
+
+$('play').onclick = () => setPlaying(!playing);
+$('scrub').oninput = e => { setPlaying(false); frame = +e.target.value; drawFrame(frame); };
+$('color').onchange = () => { buildBackground(); drawFrame(frame); };
+$('bg').onchange = e => { if (bgPts) bgPts.visible = e.target.checked; };
+$('fov').onchange = e => sensorGroup.traverse(o => { if (o.name==='fov') o.visible = e.target.checked; });
+$('trail').oninput = e => { $('trailv').textContent = (e.target.value/10).toFixed(1)+' s'; drawFrame(frame); };
+$('size').oninput = e => { const s = +e.target.value; fgMat.size = 0.08*s; bgMat.size = 0.04*s; };
+$('vTop').onclick = () => view('top'); $('vObl').onclick = () => view('obl'); $('vL0').onclick = () => view('l0');
+if (matchMedia('(prefers-reduced-motion: reduce)').matches) setPlaying(false);
+
+const clock = new THREE.Clock();
+function loop(){
+  requestAnimationFrame(loop);
+  const d = clock.getDelta();
+  if (playing && data){ acc += d * +$('speed').value; if (acc >= 0.1){ const steps = Math.floor(acc/0.1); acc -= steps*0.1; frame = (frame + steps) % data.F; drawFrame(frame); } }
+  controls.update(); renderer.render(scene, camera); placeTags();
+}
+
+(async () => {
+  try {
+    meta = await (await fetch('data/meta.json')).json();
+    const order = ['fenghuang','renminlu','moyelu','wuqueqiaolu','xiangwanglu'];
+    for (const k of order){ const b = document.createElement('button'); b.className='chip'; b.dataset.k=k; b.textContent = meta[k].label; b.onclick = () => select(k); $('sites').appendChild(b); }
+    let start = 'fenghuang'; try { const s = localStorage.getItem('sqj-site'); if (s && meta[s]) start = s; } catch(e) {}
+    await select(start); loop();
+  } catch (e) { status.textContent = 'Could not load the point clouds. Start the viewer with start_viewer.bat (it serves this folder at http://localhost:8765).'; console.error(e); }
+})();
+</script>
+
+</body>
+</html>
