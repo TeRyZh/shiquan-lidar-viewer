@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Shiquan Fused LiDAR</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -17,10 +17,10 @@
 }
 html,body{height:100%;}
 [hidden]{display:none!important;}
-body{margin:0;min-width:900px;background:var(--ink);color:var(--text);font-family:var(--display);overflow:hidden;}
+body{margin:0;background:var(--ink);color:var(--text);font-family:var(--display);overflow:hidden;}
 #stage{position:fixed;inset:0;}
 #stage canvas{display:block;width:100%;height:100%;touch-action:none;}
-.panel{position:fixed;top:16px;left:16px;
+.panel{position:fixed;top:max(16px,env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));
   width:330px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
   padding:14px 14px 12px;backdrop-filter:blur(6px);display:flex;flex-direction:column;gap:12px;z-index:2;max-height:calc(100% - 120px);overflow:auto;}
 h1{margin:0;font-size:17px;font-weight:700;letter-spacing:.01em;text-wrap:balance;}
@@ -38,7 +38,7 @@ h1{margin:0;font-size:17px;font-weight:700;letter-spacing:.01em;text-wrap:balanc
 .row label{display:flex;align-items:center;gap:6px;cursor:pointer;}
 select,input[type=range]{accent-color:var(--accent);}
 select{background:var(--ink);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font:12.5px var(--display);}
-.transport{position:fixed;left:16px;right:16px;bottom:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+.transport{position:fixed;left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));background:var(--panel);border:1px solid var(--line);border-radius:10px;
   padding:10px 14px;display:flex;align-items:center;gap:14px;z-index:2;backdrop-filter:blur(6px);}
 .play{width:36px;height:36px;border-radius:50%;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;display:grid;place-items:center;flex:none;}
 .play svg{width:14px;height:14px;fill:currentColor;}
@@ -46,7 +46,30 @@ select{background:var(--ink);color:var(--text);border:1px solid var(--line);bord
 .clock{font:12px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap;}
 .clock b{color:var(--text);font-weight:500;}
 .tag{position:absolute;z-index:1;font:600 11px var(--mono);padding:2px 6px;border-radius:4px;pointer-events:none;transform:translate(-50%,-140%);white-space:nowrap;color:var(--ink);}
-.views{display:flex;gap:6px;}
+.views{display:flex;gap:6px;flex-wrap:wrap;}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+#toggle{display:none;flex:none;font:500 12px var(--display);background:transparent;color:var(--text);border:1px solid var(--line);border-radius:999px;padding:5px 11px;cursor:pointer;}
+@media (max-width:700px), (max-height:500px){
+  .panel{top:0;left:0;right:0;width:auto;border-radius:0 0 12px 12px;border-width:0 0 1px;
+    padding:calc(8px + env(safe-area-inset-top,0px)) max(12px,env(safe-area-inset-right,0px)) 10px max(12px,env(safe-area-inset-left,0px));
+    gap:8px;max-height:72%;}
+  h1{font-size:15px;}
+  .sub{display:none;}
+  #toggle{display:inline-block;}
+  .panel .label{display:none;}
+  .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -12px;padding:0 12px 2px;-webkit-overflow-scrolling:touch;}
+  .chips::-webkit-scrollbar{display:none;}
+  .chip{flex:none;padding:6px 11px;}
+  .panel.collapsed .more{display:none;}
+  .panel:not(.collapsed) .label{display:block;}
+  .panel:not(.collapsed) .sub{display:block;}
+  .transport{left:8px;right:8px;bottom:max(8px,env(safe-area-inset-bottom,0px));padding:8px 10px;gap:10px;border-radius:12px;}
+  .play{width:40px;height:40px;}
+  .clock .hide-sm{display:none;}
+  #speed{padding:4px;}
+  input[type=range]{height:28px;}
+  .tag{font-size:10px;}
+}
 .views button{font:500 12px var(--display);background:transparent;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 9px;cursor:pointer;}
 #status{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;color:var(--muted);font:13px var(--mono);z-index:1;}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto;}}
@@ -60,7 +83,7 @@ select{background:var(--ink);color:var(--text);border:1px solid var(--line);bord
 
 <section class="panel" id="panel" aria-label="Viewer controls">
   <div>
-    <h1>Shiquan Street · fused roadside LiDAR</h1>
+    <div class="head"><h1>Shiquan Street · fused roadside LiDAR</h1><button id="toggle" aria-expanded="false" aria-controls="panel">Details</button></div>
     <p class="sub">Two RoboSense EM4 per intersection, 2026-10-26. LiDAR_1 mapped into LiDAR_0's ground-leveled frame; frames paired with the estimated recorder clock offset.</p>
   </div>
   <div>
@@ -104,7 +127,7 @@ select{background:var(--ink);color:var(--text);border:1px solid var(--line);bord
   <button class="play" id="play" aria-label="Pause"><svg viewBox="0 0 14 14" id="playIcon"><rect x="2" y="1" width="3.5" height="12"/><rect x="8.5" y="1" width="3.5" height="12"/></svg></button>
   <input type="range" id="scrub" min="0" max="299" value="0" aria-label="Frame">
   <select id="speed" aria-label="Playback speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select>
-  <span class="clock"><b id="tnow">0.0 s</b><span> / <span id="tend">29.9</span> s · frame <span id="fnum">1</span></span></span>
+  <span class="clock"><b id="tnow">0.0 s</b><span class="hide-sm"> / <span id="tend">29.9</span> s · frame <span id="fnum">1</span></span></span>
 </div>
 
 <script type="importmap">
@@ -118,13 +141,15 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const $ = id => document.getElementById(id);
 const stage = $('stage'), status = $('status');
 const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const isPhone = matchMedia('(max-width:700px), (max-height:500px)').matches;
+renderer.setPixelRatio(Math.min(devicePixelRatio, isPhone ? 1.5 : 2));
 stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0d1117);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 2000);
 camera.up.set(0,0,1);
 const controls = new OrbitControls(camera, renderer.domElement);
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 controls.enableDamping = true; controls.dampingFactor = 0.08; controls.maxPolarAngle = Math.PI*0.495;
 
 const C0 = new THREE.Color(0xff9d4d), C1 = new THREE.Color(0x3fc5f0);
@@ -255,7 +280,7 @@ function placeTags(){
 }
 
 function view(kind){
-  const m = meta[site], mx = m.l1_pos[0]/2, my = m.l1_pos[1]/2, span = Math.max(45, m.baseline*1.25);
+  const m = meta[site]; const mx = m.l1_pos[0]/2, my = m.l1_pos[1]/2, span = Math.max(45, m.baseline*1.25) / Math.min(1, Math.max(camera.aspect, 0.45));
   controls.target.set(mx,my,0);
   if (kind==='top') camera.position.set(mx, my-0.01, span*1.7);
   else if (kind==='l0') { controls.target.set(mx,my,1); camera.position.set(-4,0,m.h0+5); }
@@ -294,6 +319,10 @@ $('bg').onchange = e => { if (bgPts) bgPts.visible = e.target.checked; };
 $('fov').onchange = e => sensorGroup.traverse(o => { if (o.name==='fov') o.visible = e.target.checked; });
 $('trail').oninput = e => { $('trailv').textContent = (e.target.value/10).toFixed(1)+' s'; drawFrame(frame); };
 $('size').oninput = e => { const s = +e.target.value; fgMat.size = 0.08*s; bgMat.size = 0.04*s; };
+function setCollapsed(c){ $('panel').classList.toggle('collapsed', c); $('toggle').textContent = c ? 'Details' : 'Close'; $('toggle').setAttribute('aria-expanded', String(!c)); }
+$('toggle').onclick = () => setCollapsed(!$('panel').classList.contains('collapsed'));
+if (isPhone) { setCollapsed(true); $('trail').value = 4; $('trailv').textContent = '0.4 s'; $('size').value = 5; fgMat.size = 0.4; bgMat.size = 0.2; }
+for (const id of ['vTop','vObl','vL0']) $(id).addEventListener('click', () => { if (isPhone) setCollapsed(true); });
 $('vTop').onclick = () => view('top'); $('vObl').onclick = () => view('obl'); $('vL0').onclick = () => view('l0');
 if (matchMedia('(prefers-reduced-motion: reduce)').matches) setPlaying(false);
 

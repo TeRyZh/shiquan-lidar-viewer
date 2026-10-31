@@ -5,7 +5,7 @@ Live viewer: https://teryzh.github.io/shiquan-lidar-viewer/
 Double-click `start_viewer.bat`, or run `python -m http.server 8765` in this folder and open
 http://localhost:8765/index.html (opening index.html directly does not work: browsers block local data reads).
 
-Works offline (three.js r160 bundled in `vendor/`). Desktop browsers only.
+Works offline (three.js r160 bundled in `vendor/`). Desktop and mobile browsers.
 
 Data per intersection (`data/<site>.bin`, little-endian):
 uint32 c0[F], uint32 c1[F] (moving points per frame, LiDAR_0 / LiDAR_1), then int16 xyz in cm for:
